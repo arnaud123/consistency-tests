@@ -198,23 +198,9 @@ public class RiakClient extends DB {
 		while(!match){
 			StringToStringMap resultMap = this.executeReadQuery(client, bucketName, key);
 			if(resultMap != null)
-				match = doesValuesMatch(expectedValues, resultMap);
+				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
 		}
 		return System.currentTimeMillis() - startMillis;
-	}
-	
-	/*
-	 * This method checks whether alle the values belonging to the keyset of expected
-	 * match with the corresponding values in real. 
-	 */
-	private boolean doesValuesMatch(StringToStringMap expected, StringToStringMap real){
-		for(String key: expected.keySet()){
-			String expectedValue = expected.get(key);
-			String realValue = real.get(key);
-			if(realValue == null || !expectedValue.equals(realValue))
-				return false;
-		}
-		return true;
 	}
 	
 	@Override

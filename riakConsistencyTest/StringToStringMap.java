@@ -75,4 +75,19 @@ public class StringToStringMap extends HashMap<String, String>{
 		String value = super.get(key);
 		return new StringByteIterator(value);
 	}
+	
+	/*
+	 * This method checks whether all values belonging to the values of expected
+	 * match with the corresponding values in real. 
+	 */
+	public static boolean doesValuesMatch(StringToStringMap expected, StringToStringMap real){
+		for(String key: expected.keySet()){
+			String expectedValue = expected.get(key);
+			String realValue = real.get(key);
+			if(realValue == null || !expectedValue.equals(realValue))
+				return false;
+		}
+		return true;
+	}
+	
 }
