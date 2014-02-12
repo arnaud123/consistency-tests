@@ -23,6 +23,7 @@ import com.yahoo.ycsb.DBException;
 
 import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
+import consistencyTests.util.StringToStringMap;
 
 /*
 Copyright 2013 KU Leuven Research and Development - iMinds - Distrinet
@@ -79,8 +80,10 @@ public class RiakClient extends DB {
 		}
 	}
 
-	private TestResultFileWriter getTestResultFileWriter(){
+	private TestResultFileWriter getTestResultFileWriter() throws DBException{
 		String pathToResultFile = getProperties().getProperty("resultfile");
+		if(pathToResultFile == null)
+			throw new DBException("required property \"resultfile\" missing for riakClient");
 		return new TestResultFileWriter(pathToResultFile);
 	}
 	

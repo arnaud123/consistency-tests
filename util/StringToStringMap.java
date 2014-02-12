@@ -1,4 +1,4 @@
-package consistencyTests.couchdbConsistencyTest;
+package consistencyTests.util;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -55,6 +55,10 @@ public class StringToStringMap extends HashMap<String, String> {
 	 * match with the corresponding values in real. 
 	 */
 	public static boolean doesValuesMatch(StringToStringMap expected, StringToStringMap real){
+//		System.err.println("=== EXPECTED ===");
+//		print(expected);
+//		System.err.println("=== REAL ===");
+//		print(real);
 		for(String key: expected.keySet()){
 			String expectedValue = expected.get(key);
 			String realValue = real.get(key);
@@ -64,4 +68,10 @@ public class StringToStringMap extends HashMap<String, String> {
 		return true;
 	}
 	
+	public static void print(StringToStringMap map){
+		for(String key : map.keySet()){
+			String value = map.get(key);
+			System.err.println("Key=" + key + "; Values=" + value);
+		}
+	}
 }
