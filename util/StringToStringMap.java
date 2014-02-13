@@ -32,6 +32,10 @@ public class StringToStringMap extends HashMap<String, String> {
 		super();
 	}
 	
+	/*
+	 * After calling this constructor, the ByteIterator values 
+	 * of otherMap won't be useful anymore!!!
+	 */
 	public StringToStringMap(Map<String, ByteIterator> otherMap){
 		super();
 		for(String key: otherMap.keySet()){
@@ -55,10 +59,6 @@ public class StringToStringMap extends HashMap<String, String> {
 	 * match with the corresponding values in real. 
 	 */
 	public static boolean doesValuesMatch(StringToStringMap expected, StringToStringMap real){
-//		System.err.println("=== EXPECTED ===");
-//		print(expected);
-//		System.err.println("=== REAL ===");
-//		print(real);
 		for(String key: expected.keySet()){
 			String expectedValue = expected.get(key);
 			String realValue = real.get(key);
