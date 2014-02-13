@@ -65,7 +65,7 @@ public class CassandraClient10 extends DB
   public String column_family;
 
   private static final String DEFAULT_KEYSPACE_PROPERTY = "keyspace";
-  private static final String DEFAULT_KEYSPACE = "data";
+  private static final String DEFAULT_KEYSPACE = "usertable";
   private String keyspace;
   
   public static final String CONNECTION_RETRY_PROPERTY = "cassandra.connectionretries";

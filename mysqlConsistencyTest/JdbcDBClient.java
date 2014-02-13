@@ -235,6 +235,9 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			return stmt;
 	}
 
+	/*
+	 * Caching functionality has been removed!!!
+	 */
 	private PreparedStatement createAndCacheUpdateStatement(
 			StatementType updateType, String key, StringToStringMap updates) throws SQLException {
 		StringBuilder update = new StringBuilder("UPDATE ");
@@ -322,6 +325,8 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			int numFields = values.size();
 			StatementType type = new StatementType(
 					StatementType.OperationType.UPDATE, numFields);
+			// This statement always returns null because caching functionality has been removed
+			// for the update operation
 			PreparedStatement updateStatement = this.cachedStatements.get(type);
 			if (updateStatement == null) {
 				updateStatement = createAndCacheUpdateStatement(type, key, expectedValues);
