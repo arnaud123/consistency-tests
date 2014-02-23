@@ -37,8 +37,7 @@ public class CassandraNodeResolver {
 			String key) {
 		try {
 			String keyAsHexString = this.convertStringToHex(key);
-			String threeCommands[] = { "nodetool", "-h", this.ip, "getendpoints",
-					keyspace, columnFamily, keyAsHexString };
+			String threeCommands[] = {"ssh", "root@" + this.ip, "nodetool getendpoints " +  keyspace + " " + columnFamily + " " + keyAsHexString};
 			ProcessBuilder builder = new ProcessBuilder(threeCommands);
 			builder.redirectErrorStream();
 			Process subProcess = builder.start();
@@ -72,7 +71,7 @@ public class CassandraNodeResolver {
 	}
 
 //	public static void main(String args[]) {
-//		CassandraNodeResolver cassandra = new CassandraNodeResolver();
+//		CassandraNodeResolver cassandra = new CassandraNodeResolver("172.16.33.16");
 //		if (args.length < 3) {
 //			System.out.println("Usage: <keyspace> <columnfamily> <key>");
 //			System.exit(1);
