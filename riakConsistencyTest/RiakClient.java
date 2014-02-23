@@ -6,8 +6,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Vector;
 
-
-
 import com.basho.riak.client.IRiakClient;
 import com.basho.riak.client.RiakException;
 import com.basho.riak.client.RiakFactory;
@@ -161,7 +159,6 @@ public class RiakClient extends DB {
 	@Override
 	public int update(String bucketName, String key,
 			HashMap<String, ByteIterator> values) {
-		System.err.println("update operation");
 		List<String> ips = this.ipForKeyResolver.getIpsForKey(key);
 		IRiakClient clientForUpdate = this.clients.get(ips.get(0));
 		StringToStringMap queryResult = this.executeReadQuery(clientForUpdate, bucketName, key);
@@ -182,7 +179,6 @@ public class RiakClient extends DB {
 	@Override
 	public int insert(String bucketName, String key,
 			HashMap<String, ByteIterator> values) {
-		System.err.println("insert operation");
 		List<String> ips = this.ipForKeyResolver.getIpsForKey(key);
 		IRiakClient clientForInsertion = this.clients.get(ips.get(0));
 		StringToStringMap dataToInsert = new StringToStringMap(values);
@@ -195,7 +191,7 @@ public class RiakClient extends DB {
 	}
 
 	private long checkConsistencyNewValue(String ip, String bucketName, String key, StringToStringMap expectedValues){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		IRiakClient client = this.clients.get(ip);
 		boolean match = false;
 		while(!match){
@@ -203,7 +199,7 @@ public class RiakClient extends DB {
 			if(resultMap != null)
 				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
 		}
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 	
 	@Override
@@ -226,13 +222,13 @@ public class RiakClient extends DB {
 	}
 	
 	private long checkConsistencyDeletion(String ip, String bucketName, String key){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		IRiakClient client = this.clients.get(ip);
 		StringToStringMap resultMap = null;
 		while(resultMap != null){
 			resultMap = this.executeReadQuery(client, bucketName, key);
 		}
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 
 }

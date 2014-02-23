@@ -424,7 +424,7 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 	}
 
 	private long getDelayForConsistencyNewValue(String key, StringToStringMap expectedValues){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		boolean newValuesAreConsistent = false;
 		//System.err.println("entering new value while loop");
 		try {
@@ -436,7 +436,7 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
 		}
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 	
 	private StringToStringMap getItemAsStringToStringMap(String key, Set<String> fields) throws SQLException {
@@ -503,7 +503,7 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 	}
 	
 	private long getDelayForConsistencyDeletion(String key){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		boolean itemExists = true;
 //		System.err.println("entering deletion while loop");
 		try {
@@ -513,7 +513,7 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
 		}
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 	
 	private boolean doesItemExists(String key) throws SQLException{

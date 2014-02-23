@@ -238,22 +238,22 @@ public class CouchdbClient extends DB{
 	}	
 	
 	private long getDelayForConsistencyNewValue(CouchDbConnector connector, String key, StringToStringMap expectedValues){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		boolean match = false;
 		while(!match){
 			StringToStringMap realValues = this.executeReadOperation(connector, key);
 			if(realValues != null && StringToStringMap.doesValuesMatch(expectedValues, realValues))
 				match = true;
 		}
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 	
 	private long getDelayForConsistencyDeletion(CouchDbConnector connector, String key){
-		long startMillis = System.currentTimeMillis();
+		long startMillis = System.nanoTime();
 		StringToStringMap deleted = null; 
 		do{
 			deleted = this.executeReadOperation(connector, key);
 		} while(deleted != null);
-		return System.currentTimeMillis() - startMillis;
+		return System.nanoTime() - startMillis;
 	}
 }

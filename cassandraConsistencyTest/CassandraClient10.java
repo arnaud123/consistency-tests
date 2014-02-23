@@ -342,13 +342,13 @@ public class CassandraClient10 extends DB
   }
   
   private long getDelayForConsistencyInsertOperation(String key, StringToStringMap expectedValues, Client client){
-	  long startMillis = System.currentTimeMillis();
+	  long startMillis = System.nanoTime();
 	  boolean consistencyReached = false;
 	  while(!consistencyReached){
 		  StringToStringMap realValues = this.getValueForKey(key, client);
 		  consistencyReached = StringToStringMap.doesValuesMatch(expectedValues, realValues);
 	  }
-	  return System.currentTimeMillis() - startMillis;
+	  return System.nanoTime() - startMillis;
   }
   
   /**
@@ -396,13 +396,13 @@ public class CassandraClient10 extends DB
   }
   
   private long getDelayConsistencyDeleteOperation(String key, Client client){
-	  long startMillis = System.currentTimeMillis();
+	  long startMillis = System.nanoTime();
 	  boolean itemHasBeenRemoved = false;
 	  while(!itemHasBeenRemoved){
 		  StringToStringMap result = this.getValueForKey(key, client);
 		  itemHasBeenRemoved = result.isEmpty();
 	  }
-	  return System.currentTimeMillis() - startMillis;
+	  return System.nanoTime() - startMillis;
   }
   
   public StringToStringMap getValueForKey(String key, Client client)
