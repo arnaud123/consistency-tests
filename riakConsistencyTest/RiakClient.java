@@ -21,6 +21,7 @@ import com.yahoo.ycsb.DBException;
 
 import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
+import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 /*
@@ -171,8 +172,8 @@ public class RiakClient extends DB {
 		int exitCode = this.executeWriteQuery(clientForUpdate, bucketName, key, queryResult);
 		if(exitCode != OK)
 			return exitCode;
-		long delay = this.checkConsistencyNewValue(ips.get(1), bucketName, key, queryResult);
-		this.resultFileWriter.write(Operation.UPDATE, delay);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(ips.get(1), bucketName, key, queryResult);
+		this.resultFileWriter.write(Operation.UPDATE, consistencyResult);
 		return OK;
 	}
 
@@ -185,21 +186,24 @@ public class RiakClient extends DB {
 		int exitCode = this.executeWriteQuery(clientForInsertion, bucketName, key, dataToInsert);
 		if(exitCode != OK)
 			return exitCode;
-		long delay = this.checkConsistencyNewValue(ips.get(1), bucketName, key, dataToInsert);
-		this.resultFileWriter.write(Operation.INSERT, delay);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(ips.get(1), bucketName, key, dataToInsert);
+		this.resultFileWriter.write(Operation.INSERT, consistencyResult);
 		return OK;
 	}
 
-	private long checkConsistencyNewValue(String ip, String bucketName, String key, StringToStringMap expectedValues){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult checkConsistencyNewValue(String ip, String bucketName, String key, StringToStringMap expectedValues){
+		long startNanos = System.nanoTime();
+		int attempts = 0;
 		IRiakClient client = this.clients.get(ip);
 		boolean match = false;
 		while(!match){
 			StringToStringMap resultMap = this.executeReadQuery(client, bucketName, key);
 			if(resultMap != null)
 				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
+			attempts++;
 		}
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 	
 	@Override
@@ -216,19 +220,22 @@ public class RiakClient extends DB {
 		} catch (RiakException e) {
 			return ERROR;
 		}
-		long delay = this.checkConsistencyDeletion(ips.get(1), bucketName, key);
-		this.resultFileWriter.write(Operation.DELETE, delay);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyDeletion(ips.get(1), bucketName, key);
+		this.resultFileWriter.write(Operation.DELETE, consistencyResult);
 		return OK;
 	}
 	
-	private long checkConsistencyDeletion(String ip, String bucketName, String key){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult checkConsistencyDeletion(String ip, String bucketName, String key){
+		long startNanos= System.nanoTime();
+		int attempts = 0;
 		IRiakClient client = this.clients.get(ip);
 		StringToStringMap resultMap = null;
 		while(resultMap != null){
 			resultMap = this.executeReadQuery(client, bucketName, key);
+			attempts++;
 		}
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 
 }

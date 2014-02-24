@@ -5,6 +5,8 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 
+import consistencyTests.util.ConsistencyDelayResult;
+
 public class TestResultFileWriter {
 
 	private BufferedWriter resultFileWriter; 
@@ -29,11 +31,11 @@ public class TestResultFileWriter {
 		return (this.resultFileWriter == null);
 	}
 	
-	public void write(Operation operation, long delay) {
+	public void write(Operation operation, ConsistencyDelayResult result) {
 		if(this.isClosed())
 			throw new IllegalArgumentException("writer has been closed");
 		try {
-			this.resultFileWriter.write(operation.toString() + "," + delay + "\n");
+			this.resultFileWriter.write(operation.toString() + "," + result.getDelay()+ "," + result.getAmountOfAttempts() + "\n");
 		} catch (IOException e) {
 			e.printStackTrace();
 			throw new RuntimeException("Could not write to file");

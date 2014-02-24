@@ -48,6 +48,7 @@ import com.yahoo.ycsb.DBException;
 
 import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
+import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 //XXXX if we do replication, fix the consistency levels
@@ -323,9 +324,9 @@ public class CassandraClient10 extends DB
 				String ipForConsistencyTest = nodesContainingDataForKey.get(1);
 				Client clientForConsistencyTest = this.ipToClient
 						.get(ipForConsistencyTest);
-				long delay = this.getDelayForConsistencyInsertOperation(key,
+				ConsistencyDelayResult consistencyResult= this.getDelayForConsistencyInsertOperation(key,
 						expectedValues, clientForConsistencyTest);
-				this.resultWriter.write(typeOperation, delay);
+				this.resultWriter.write(typeOperation, consistencyResult);
 
 				return Ok;
 			} catch (Exception e) {
@@ -341,14 +342,17 @@ public class CassandraClient10 extends DB
 		return Error;
   }
   
-  private long getDelayForConsistencyInsertOperation(String key, StringToStringMap expectedValues, Client client){
-	  long startMillis = System.nanoTime();
+  private ConsistencyDelayResult getDelayForConsistencyInsertOperation(String key, StringToStringMap expectedValues, Client client){
+	  long startNanos = System.nanoTime();
+	  int attempts = 0;
 	  boolean consistencyReached = false;
 	  while(!consistencyReached){
 		  StringToStringMap realValues = this.getValueForKey(key, client);
 		  consistencyReached = StringToStringMap.doesValuesMatch(expectedValues, realValues);
+		  attempts++;
 	  }
-	  return System.nanoTime() - startMillis;
+	  long delay = System.nanoTime() - startNanos;
+	  return new ConsistencyDelayResult(delay, attempts);
   }
   
   /**
@@ -376,8 +380,8 @@ public class CassandraClient10 extends DB
         
         String ipForConsistencyTest = nodesContainingDataForKey.get(1);
         Client clientForConsistencyTest = this.ipToClient.get(ipForConsistencyTest);
-        long delay = this.getDelayConsistencyDeleteOperation(key, clientForConsistencyTest);
-        this.resultWriter.write(Operation.DELETE, delay);
+        ConsistencyDelayResult consistencyResult = this.getDelayConsistencyDeleteOperation(key, clientForConsistencyTest);
+        this.resultWriter.write(Operation.DELETE, consistencyResult);
         return Ok;
       } catch (Exception e)
       {
@@ -395,14 +399,17 @@ public class CassandraClient10 extends DB
     return Error;
   }
   
-  private long getDelayConsistencyDeleteOperation(String key, Client client){
-	  long startMillis = System.nanoTime();
+  private ConsistencyDelayResult getDelayConsistencyDeleteOperation(String key, Client client){
+	  long startNanos = System.nanoTime();
+	  int attempts = 0;
 	  boolean itemHasBeenRemoved = false;
 	  while(!itemHasBeenRemoved){
 		  StringToStringMap result = this.getValueForKey(key, client);
 		  itemHasBeenRemoved = result.isEmpty();
+		  attempts++;
 	  }
-	  return System.nanoTime() - startMillis;
+	  long delay = System.nanoTime() - startNanos;
+	  return new ConsistencyDelayResult(delay, attempts);
   }
   
   public StringToStringMap getValueForKey(String key, Client client)

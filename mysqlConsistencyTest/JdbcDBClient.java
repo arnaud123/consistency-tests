@@ -18,6 +18,7 @@ import com.yahoo.ycsb.DBException;
 
 import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
+import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 /**
@@ -352,8 +353,8 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			int result = updateStatement.executeUpdate();
 			if (result != 1)
 				return 1;
-			long delay = this.getDelayForConsistencyNewValue(key, expectedValues);
-			this.resultWriter.write(Operation.UPDATE, delay);
+			ConsistencyDelayResult consistencyResult = this.getDelayForConsistencyNewValue(key, expectedValues);
+			this.resultWriter.write(Operation.UPDATE, consistencyResult);
 			return SUCCESS;
 		} catch (SQLException e) {
 			System.err.println("Error in processing update to table: "
@@ -413,8 +414,8 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			int result = insertStatement.executeUpdate();
 			if (result != 1)
 				return 1;
-			long delay = this.getDelayForConsistencyNewValue(key, expectedValues);
-			this.resultWriter.write(Operation.INSERT, delay);
+			ConsistencyDelayResult consistencyResult = this.getDelayForConsistencyNewValue(key, expectedValues);
+			this.resultWriter.write(Operation.INSERT, consistencyResult);
 			return SUCCESS;
 		} catch (SQLException e) {
 			System.err.println("Error in processing insert to table: "
@@ -423,20 +424,22 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 		}
 	}
 
-	private long getDelayForConsistencyNewValue(String key, StringToStringMap expectedValues){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult getDelayForConsistencyNewValue(String key, StringToStringMap expectedValues){
+		long startNanos = System.nanoTime();
 		boolean newValuesAreConsistent = false;
-		//System.err.println("entering new value while loop");
+		int attempts = 0;
 		try {
 			while(!newValuesAreConsistent){
 				StringToStringMap realValues = this.getItemAsStringToStringMap(key, expectedValues.keySet());
 				if(realValues != null && StringToStringMap.doesValuesMatch(expectedValues, realValues))
 					newValuesAreConsistent = true;
+				attempts++;
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
 		}
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 	
 	private StringToStringMap getItemAsStringToStringMap(String key, Set<String> fields) throws SQLException {
@@ -492,8 +495,8 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			int result = deleteStatement.executeUpdate();
 			if (result != 1)
 				return 1;
-			long delay = this.getDelayForConsistencyDeletion(key);
-			this.resultWriter.write(Operation.DELETE, delay);
+			ConsistencyDelayResult consistencyResult = this.getDelayForConsistencyDeletion(key);
+			this.resultWriter.write(Operation.DELETE, consistencyResult);
 			return SUCCESS;
 		} catch (SQLException e) {
 			System.err.println("Error in processing delete to table: "
@@ -502,18 +505,20 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 		}
 	}
 	
-	private long getDelayForConsistencyDeletion(String key){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult getDelayForConsistencyDeletion(String key){
+		long startNanos= System.nanoTime();
 		boolean itemExists = true;
-//		System.err.println("entering deletion while loop");
+		int attempts = 0;
 		try {
 			while(itemExists){
-				itemExists = doesItemExists(key); 
+				itemExists = doesItemExists(key);
+				attempts++;
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
 		}
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 	
 	private boolean doesItemExists(String key) throws SQLException{
@@ -556,23 +561,23 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 	
 	
 	
-	// For testing purposes
-	private void listValues(String key) throws SQLException{
-		this.connection.setReadOnly(true);
-		StatementType type = new StatementType(
-				StatementType.OperationType.READ, 1);
-		PreparedStatement readStatement = this.cachedStatements.get(type);
-		if (readStatement == null) {
-			readStatement = createAndCacheReadStatement(type, key);
-		}
-		readStatement.setString(1, key);
-		ResultSet resultSet = readStatement.executeQuery();
-		while(resultSet.next()){
-			System.err.println("Key: " + resultSet.getString(1));
-			for(int i=2; i<=10; i++)
-				System.err.println("old field" + (i-2) + ": " + resultSet.getString(i));
-		}
-		resultSet.close();
-		this.connection.setReadOnly(false);
-	}
+//	// For testing purposes
+//	private void listValues(String key) throws SQLException{
+//		this.connection.setReadOnly(true);
+//		StatementType type = new StatementType(
+//				StatementType.OperationType.READ, 1);
+//		PreparedStatement readStatement = this.cachedStatements.get(type);
+//		if (readStatement == null) {
+//			readStatement = createAndCacheReadStatement(type, key);
+//		}
+//		readStatement.setString(1, key);
+//		ResultSet resultSet = readStatement.executeQuery();
+//		while(resultSet.next()){
+//			System.err.println("Key: " + resultSet.getString(1));
+//			for(int i=2; i<=10; i++)
+//				System.err.println("old field" + (i-2) + ": " + resultSet.getString(i));
+//		}
+//		resultSet.close();
+//		this.connection.setReadOnly(false);
+//	}
 }

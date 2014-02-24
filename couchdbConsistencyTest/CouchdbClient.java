@@ -23,6 +23,7 @@ import com.yahoo.ycsb.DBException;
 
 import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
+import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 /*
@@ -194,8 +195,8 @@ public class CouchdbClient extends DB{
 		int success = this.executeUpdateOperation(connectorForUpdate, updatedMap);
 		if(success != OK)
 			return success;
-		long delay = getDelayForConsistencyNewValue(getNextConnector(), key, updatedMap);
-		this.resultFileWriter.write(Operation.UPDATE, delay);
+		ConsistencyDelayResult consistencyResults = getDelayForConsistencyNewValue(getNextConnector(), key, updatedMap);
+		this.resultFileWriter.write(Operation.UPDATE, consistencyResults);
 		return OK;
 	}
 
@@ -217,8 +218,8 @@ public class CouchdbClient extends DB{
 		int success = this.executeWriteOperation(connectorForInsert, key, dataToInsert);
 		if(success != OK)
 			return success;
-		long delay = getDelayForConsistencyNewValue(getNextConnector(), key, dataToInsert);
-		this.resultFileWriter.write(Operation.INSERT, delay);
+		ConsistencyDelayResult consistencyResult = getDelayForConsistencyNewValue(getNextConnector(), key, dataToInsert);
+		this.resultFileWriter.write(Operation.INSERT, consistencyResult);
 		return OK; 
 	}
 
@@ -232,28 +233,34 @@ public class CouchdbClient extends DB{
 		int success = this.executeDeleteOperation(connectorForDeletion, toDelete);
 		if(success != OK)
 			return success;
-		long delay = getDelayForConsistencyDeletion(getNextConnector(), key);
-		this.resultFileWriter.write(Operation.DELETE, delay);
+		ConsistencyDelayResult consistencyResult = getDelayForConsistencyDeletion(getNextConnector(), key);
+		this.resultFileWriter.write(Operation.DELETE, consistencyResult);
 		return OK;
 	}	
 	
-	private long getDelayForConsistencyNewValue(CouchDbConnector connector, String key, StringToStringMap expectedValues){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult getDelayForConsistencyNewValue(CouchDbConnector connector, String key, StringToStringMap expectedValues){
+		long startNanos = System.nanoTime();
+		int attempts = 0;
 		boolean match = false;
 		while(!match){
 			StringToStringMap realValues = this.executeReadOperation(connector, key);
 			if(realValues != null && StringToStringMap.doesValuesMatch(expectedValues, realValues))
 				match = true;
+			attempts++;
 		}
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 	
-	private long getDelayForConsistencyDeletion(CouchDbConnector connector, String key){
-		long startMillis = System.nanoTime();
+	private ConsistencyDelayResult getDelayForConsistencyDeletion(CouchDbConnector connector, String key){
+		long startNanos= System.nanoTime();
+		int attempts = 0;
 		StringToStringMap deleted = null; 
 		do{
 			deleted = this.executeReadOperation(connector, key);
+			attempts++;
 		} while(deleted != null);
-		return System.nanoTime() - startMillis;
+		long delay = System.nanoTime() - startNanos;
+		return new ConsistencyDelayResult(delay, attempts);
 	}
 }
