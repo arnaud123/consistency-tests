@@ -249,6 +249,9 @@ public class CouchdbClient extends DB{
 			if(realValues != null && StringToStringMap.doesValuesMatch(expectedValues, realValues))
 				match = true;
 			attempts++;
+			// Value already overwritten by other client thread
+			if (System.nanoTime() - startNanos > 2000000000L)
+				return new ConsistencyDelayResult(2000000000L, attempts);
 		}
 		long delay = System.nanoTime() - startNanos;
 		return new ConsistencyDelayResult(delay, attempts);
@@ -261,6 +264,9 @@ public class CouchdbClient extends DB{
 		do{
 			deleted = this.executeReadOperation(connector, key);
 			attempts++;
+			// Value already overwritten by other client thread
+			if (System.nanoTime() - startNanos > 2000000000L)
+				return new ConsistencyDelayResult(2000000000L, attempts);
 		} while(deleted != null);
 		long delay = System.nanoTime() - startNanos;
 		return new ConsistencyDelayResult(delay, attempts);

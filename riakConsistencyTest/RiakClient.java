@@ -189,6 +189,9 @@ public class RiakClient extends DB {
 			if(resultMap != null)
 				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
 			attempts++;
+			// Value already overwritten by other client thread
+			if(System.nanoTime() - startNanos > 2000000000L)
+				return new ConsistencyDelayResult(2000000000L, attempts);
 		}
 		long delay = System.nanoTime() - startNanos;
 		return new ConsistencyDelayResult(delay, attempts);
@@ -196,7 +199,6 @@ public class RiakClient extends DB {
 	
 	@Override
 	public int delete(String bucketName, String key) {
-		System.err.println("delete operation");
 		try {
 			Bucket bucket = this.clientForModifications.fetchBucket(bucketName).execute();
 			DeleteObject delObj = bucket.delete(key);
@@ -218,6 +220,9 @@ public class RiakClient extends DB {
 		while(resultMap != null){
 			resultMap = this.executeReadQuery(this.clientForConsistencyChecks, bucketName, key);
 			attempts++;
+			// Value already overwritten by other client thread
+			if(System.nanoTime() - startNanos > 2000000000L)
+				return new ConsistencyDelayResult(2000000000L, attempts);
 		}
 		long delay = System.nanoTime() - startNanos;
 		return new ConsistencyDelayResult(delay, attempts);

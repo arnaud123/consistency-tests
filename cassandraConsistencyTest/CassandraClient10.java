@@ -340,6 +340,9 @@ public class CassandraClient10 extends DB
 		  StringToStringMap realValues = this.getValueForKey(key, client);
 		  consistencyReached = StringToStringMap.doesValuesMatch(expectedValues, realValues);
 		  attempts++;
+		  // Value already overwritten by other client thread
+		  if (System.nanoTime() - startNanos > 2000000000L)
+			  return new ConsistencyDelayResult(2000000000L, attempts);
 	  }
 	  long delay = System.nanoTime() - startNanos;
 	  return new ConsistencyDelayResult(delay, attempts);
@@ -392,6 +395,9 @@ public class CassandraClient10 extends DB
 		  StringToStringMap result = this.getValueForKey(key, client);
 		  itemHasBeenRemoved = result.isEmpty();
 		  attempts++;
+		  // Value already overwritten by other client thread
+		  if (System.nanoTime() - startNanos > 2000000000L)
+			  return new ConsistencyDelayResult(2000000000L, attempts);
 	  }
 	  long delay = System.nanoTime() - startNanos;
 	  return new ConsistencyDelayResult(delay, attempts);

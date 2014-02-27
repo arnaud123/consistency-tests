@@ -434,6 +434,9 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 				if(realValues != null && StringToStringMap.doesValuesMatch(expectedValues, realValues))
 					newValuesAreConsistent = true;
 				attempts++;
+				// Value already overwritten by other client thread
+				if (System.nanoTime() - startNanos > 2000000000L)
+					return new ConsistencyDelayResult(2000000000L, attempts);
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
@@ -513,6 +516,9 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 			while(itemExists){
 				itemExists = doesItemExists(key);
 				attempts++;
+				// Value already overwritten by other client thread
+				if (System.nanoTime() - startNanos > 2000000000L)
+					return new ConsistencyDelayResult(2000000000L, attempts);
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException("Error in processing read of table: " + e);
