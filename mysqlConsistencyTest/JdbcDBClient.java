@@ -173,13 +173,13 @@ public class JdbcDBClient extends DB implements JdbcDBClientConstants {
 
 	@Override
 	public void cleanup() throws DBException {
+		this.resultWriter.close();
 		try {
 			this.connection.close();
 		} catch (SQLException e) {
 			System.err.println("Error in closing the database connection");
 			throw new DBException(e);
 		}
-		this.resultWriter.close();
 	}
 
 	private PreparedStatement createAndCacheInsertStatement(

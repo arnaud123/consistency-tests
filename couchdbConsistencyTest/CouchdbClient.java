@@ -117,6 +117,8 @@ public class CouchdbClient extends DB{
 	@Override
 	public void init() throws DBException{
 		List<URL> urls = getUrlsForHosts();
+		if(urls.size() < 2)
+			throw new DBException("At least two hosts required for property \"host\"");
 		this.dbConnectors = new ArrayList<CouchDbConnector>();
 		for(URL url : urls){
 			HttpClient httpClient = new StdHttpClient.Builder().url(url).build();
@@ -195,7 +197,7 @@ public class CouchdbClient extends DB{
 		int success = this.executeUpdateOperation(connectorForUpdate, updatedMap);
 		if(success != OK)
 			return success;
-		ConsistencyDelayResult consistencyResults = getDelayForConsistencyNewValue(getNextConnector(), key, updatedMap);
+		ConsistencyDelayResult consistencyResults = getDelayForConsistencyNewValue(this.getNextConnector(), key, updatedMap);
 		this.resultFileWriter.write(Operation.UPDATE, consistencyResults);
 		return OK;
 	}
@@ -218,7 +220,7 @@ public class CouchdbClient extends DB{
 		int success = this.executeWriteOperation(connectorForInsert, key, dataToInsert);
 		if(success != OK)
 			return success;
-		ConsistencyDelayResult consistencyResult = getDelayForConsistencyNewValue(getNextConnector(), key, dataToInsert);
+		ConsistencyDelayResult consistencyResult = getDelayForConsistencyNewValue(this.getNextConnector(), key, dataToInsert);
 		this.resultFileWriter.write(Operation.INSERT, consistencyResult);
 		return OK; 
 	}
@@ -233,7 +235,7 @@ public class CouchdbClient extends DB{
 		int success = this.executeDeleteOperation(connectorForDeletion, toDelete);
 		if(success != OK)
 			return success;
-		ConsistencyDelayResult consistencyResult = getDelayForConsistencyDeletion(getNextConnector(), key);
+		ConsistencyDelayResult consistencyResult = getDelayForConsistencyDeletion(this.getNextConnector(), key);
 		this.resultFileWriter.write(Operation.DELETE, consistencyResult);
 		return OK;
 	}	

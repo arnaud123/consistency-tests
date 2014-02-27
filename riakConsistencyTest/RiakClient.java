@@ -1,8 +1,6 @@
 package consistencyTests.riakConsistencyTest;
 
 import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.Vector;
 
@@ -15,6 +13,8 @@ import com.basho.riak.client.cap.Quora;
 import com.basho.riak.client.operations.DeleteObject;
 import com.basho.riak.client.operations.FetchObject;
 import com.basho.riak.client.operations.StoreObject;
+import com.basho.riak.client.raw.http.HTTPClientConfig;
+import com.basho.riak.client.raw.http.HTTPClusterConfig;
 import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.DBException;
@@ -50,14 +50,14 @@ public class RiakClient extends DB {
 	private static final Quora DEFAULT_WRITE_QUORUM = Quora.ONE;
 	private static final Quora DEFAULT_DELETE_QUORA = Quora.ONE;
 	
-//	private final int maxConnections = 50;
-	private Map<String, IRiakClient> clients;
-	private RiakIpsForKeyResolver ipForKeyResolver;
+	private final int maxConnections = 50;
+	private IRiakClient clientForModifications;
+	private IRiakClient clientForConsistencyChecks;
 	private TestResultFileWriter resultFileWriter;
 	
 	public RiakClient(){
-		this.clients = null;
-		this.ipForKeyResolver = null;
+		this.clientForModifications = null;
+		this.clientForConsistencyChecks = null;
 		this.resultFileWriter = null;
 	}
 	
@@ -67,17 +67,6 @@ public class RiakClient extends DB {
 			throw new DBException("Required property \"hosts\" missing for RiakClient");
 		return hosts.split(",");
 	}
-	
-	private int getReplicationFactor() throws DBException {
-		String replicationFactorAsString = getProperties().getProperty("replicationfactor");
-		if(replicationFactorAsString == null)
-			throw new DBException("required property \"replicationfactor\" missing for riakClient");
-		try{
-			return Integer.parseInt(replicationFactorAsString);
-		} catch(NumberFormatException exc){
-			throw new DBException("Replicationfactor must be a strict positive integer");
-		}
-	}
 
 	private TestResultFileWriter getTestResultFileWriter() throws DBException{
 		String pathToResultFile = getProperties().getProperty("resultfile");
@@ -86,41 +75,45 @@ public class RiakClient extends DB {
 		return new TestResultFileWriter(pathToResultFile);
 	}
 	
-	private Map<String, IRiakClient> getClients() throws DBException{
-		Map<String, IRiakClient> result = new HashMap<String, IRiakClient>();
+	private HTTPClusterConfig getClusterConfiguration() throws DBException {
+		String[] hosts = this.getIpAddressesOfNodes();
+		HTTPClusterConfig clusterConfig = new HTTPClusterConfig(
+				this.maxConnections);
+		HTTPClientConfig httpClientConfig = HTTPClientConfig.defaults();
+		clusterConfig.addHosts(httpClientConfig, hosts);
+		return clusterConfig;
+	}
+	
+	private IRiakClient createRiakClient() throws DBException{
+		HTTPClusterConfig clusterConfig = getClusterConfiguration();
 		try {
-			for(String ip : getIpAddressesOfNodes()){
-				IRiakClient httpClient = RiakFactory.httpClient("http://" + ip + ":8098/riak");
-				result.put(ip, httpClient);
-			}
+			return RiakFactory.newClient(clusterConfig);
 		} catch (RiakException e) {
-			throw new DBException("Unable to connect to cluster node");
+			throw new DBException("Unable to connect to cluster nodes");
 		}
-		return result;
 	}
 	
 	@Override
 	public void init() throws DBException {
-		this.clients = this.getClients();
-		int replicationFactor = this.getReplicationFactor();
-		// Choose random node in cluster to resolve ip addresses
-		this.ipForKeyResolver = new RiakIpsForKeyResolver(getIpAddressesOfNodes()[0], replicationFactor);
+		this.clientForModifications = this.createRiakClient();
+		this.clientForConsistencyChecks = this.createRiakClient();
 		this.resultFileWriter = this.getTestResultFileWriter();
 	}
 	
 	@Override
 	public void cleanup() throws DBException {
-		if(this.clients != null)
-			this.shutdownAllClients();
+		this.shutdownAllClients();
 		this.resultFileWriter.close();
 	}
 	
 	private void shutdownAllClients(){
-		if(this.clients == null)
-			throw new IllegalStateException("Clients instance is null");
-		for(IRiakClient currentClient: this.clients.values()){
-			currentClient.shutdown();
-		}
+		this.shutdownClient(this.clientForModifications);
+		this.shutdownClient(this.clientForConsistencyChecks);
+	}
+	
+	private void shutdownClient(IRiakClient client){
+		if(client != null)
+			client.shutdown();
 	}
 	
 	private StringToStringMap executeReadQuery(IRiakClient client, String bucketName, String key) {
@@ -160,19 +153,17 @@ public class RiakClient extends DB {
 	@Override
 	public int update(String bucketName, String key,
 			HashMap<String, ByteIterator> values) {
-		List<String> ips = this.ipForKeyResolver.getIpsForKey(key);
-		IRiakClient clientForUpdate = this.clients.get(ips.get(0));
-		StringToStringMap queryResult = this.executeReadQuery(clientForUpdate, bucketName, key);
+		StringToStringMap queryResult = this.executeReadQuery(this.clientForModifications, bucketName, key);
 		if(queryResult == null)
 			return ERROR;
 		for(String fieldToUpdate: values.keySet()){
 			ByteIterator newValue = values.get(fieldToUpdate);
 			queryResult.put(fieldToUpdate, newValue);
 		}
-		int exitCode = this.executeWriteQuery(clientForUpdate, bucketName, key, queryResult);
+		int exitCode = this.executeWriteQuery(this.clientForModifications, bucketName, key, queryResult);
 		if(exitCode != OK)
 			return exitCode;
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(ips.get(1), bucketName, key, queryResult);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(bucketName, key, queryResult);
 		this.resultFileWriter.write(Operation.UPDATE, consistencyResult);
 		return OK;
 	}
@@ -180,24 +171,21 @@ public class RiakClient extends DB {
 	@Override
 	public int insert(String bucketName, String key,
 			HashMap<String, ByteIterator> values) {
-		List<String> ips = this.ipForKeyResolver.getIpsForKey(key);
-		IRiakClient clientForInsertion = this.clients.get(ips.get(0));
 		StringToStringMap dataToInsert = new StringToStringMap(values);
-		int exitCode = this.executeWriteQuery(clientForInsertion, bucketName, key, dataToInsert);
+		int exitCode = this.executeWriteQuery(this.clientForModifications, bucketName, key, dataToInsert);
 		if(exitCode != OK)
 			return exitCode;
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(ips.get(1), bucketName, key, dataToInsert);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(bucketName, key, dataToInsert);
 		this.resultFileWriter.write(Operation.INSERT, consistencyResult);
 		return OK;
 	}
 
-	private ConsistencyDelayResult checkConsistencyNewValue(String ip, String bucketName, String key, StringToStringMap expectedValues){
+	private ConsistencyDelayResult checkConsistencyNewValue(String bucketName, String key, StringToStringMap expectedValues){
 		long startNanos = System.nanoTime();
 		int attempts = 0;
-		IRiakClient client = this.clients.get(ip);
 		boolean match = false;
 		while(!match){
-			StringToStringMap resultMap = this.executeReadQuery(client, bucketName, key);
+			StringToStringMap resultMap = this.executeReadQuery(this.clientForConsistencyChecks, bucketName, key);
 			if(resultMap != null)
 				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
 			attempts++;
@@ -209,10 +197,8 @@ public class RiakClient extends DB {
 	@Override
 	public int delete(String bucketName, String key) {
 		System.err.println("delete operation");
-		List<String> ips = this.ipForKeyResolver.getIpsForKey(key);
-		IRiakClient clientForDeletion = this.clients.get(ips.get(0));
 		try {
-			Bucket bucket = clientForDeletion.fetchBucket(bucketName).execute();
+			Bucket bucket = this.clientForModifications.fetchBucket(bucketName).execute();
 			DeleteObject delObj = bucket.delete(key);
 			delObj.rw(DEFAULT_DELETE_QUORA).execute();
 		} catch (RiakRetryFailedException e) {
@@ -220,18 +206,17 @@ public class RiakClient extends DB {
 		} catch (RiakException e) {
 			return ERROR;
 		}
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyDeletion(ips.get(1), bucketName, key);
+		ConsistencyDelayResult consistencyResult = this.checkConsistencyDeletion(bucketName, key);
 		this.resultFileWriter.write(Operation.DELETE, consistencyResult);
 		return OK;
 	}
 	
-	private ConsistencyDelayResult checkConsistencyDeletion(String ip, String bucketName, String key){
+	private ConsistencyDelayResult checkConsistencyDeletion(String bucketName, String key){
 		long startNanos= System.nanoTime();
 		int attempts = 0;
-		IRiakClient client = this.clients.get(ip);
 		StringToStringMap resultMap = null;
 		while(resultMap != null){
-			resultMap = this.executeReadQuery(client, bucketName, key);
+			resultMap = this.executeReadQuery(this.clientForConsistencyChecks, bucketName, key);
 			attempts++;
 		}
 		long delay = System.nanoTime() - startNanos;

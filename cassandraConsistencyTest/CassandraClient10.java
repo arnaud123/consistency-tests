@@ -104,8 +104,8 @@ public class CassandraClient10 extends DB
   ConsistencyLevel deleteConsistencyLevel = ConsistencyLevel.ONE;
 
   private TestResultFileWriter resultWriter;
-  private CassandraNodeResolver nodeResolver;
-  private Map<String, Client> ipToClient;
+  private Client clientForModifications;
+  private Client clientForConsistencyChecks;
   private List<TTransport> trs;
   
   /**
@@ -137,16 +137,14 @@ public class CassandraClient10 extends DB
     
     String[] allhosts = hosts.split(",");
     
-    this.ipToClient = new HashMap<String, Cassandra.Client>();
+    if(allhosts.length <2)
+    	throw new DBException("Al least two hosts required for \"hosts\" property");
     this.trs = new ArrayList<TTransport>();
-    for(String ip : allhosts){
-    	Client client = this.createClient(ip);
-    	this.ipToClient.put(ip, client);
-    }
-   
+    this.clientForModifications = this.createClient(allhosts[0]);
+    this.clientForConsistencyChecks = this.createClient(allhosts[1]);
+    
     if(this.resultWriter == null)
-    	this.resultWriter = this.getTestResultFileWriter(); 
-    this.nodeResolver = new CassandraNodeResolver(allhosts[0]);
+    	this.resultWriter = this.getTestResultFileWriter();
   }
 
 	private Client createClient(String ip) throws DBException {
@@ -285,12 +283,6 @@ public class CassandraClient10 extends DB
 
   private int executeInsertOrUpdate(Operation typeOperation, String table, String key, HashMap<String, ByteIterator> values){
 		StringToStringMap expectedValues = new StringToStringMap(values);
-		List<String> nodesContainingDataForKey = this.nodeResolver
-				.getIpsContainingDate(this.keyspace, this.column_family, key);
-		
-		String ipForInsertion = nodesContainingDataForKey.get(0);
-		Client clientForInsertion = this.ipToClient.get(ipForInsertion);
-		
 		for (int i = 0; i < OperationRetries; i++) {
 			try {
 				ByteBuffer wrappedKey = ByteBuffer.wrap(key.getBytes("UTF-8"));
@@ -314,18 +306,16 @@ public class CassandraClient10 extends DB
 				
 				mutationMap.put(column_family, mutations);
 				record.put(wrappedKey, mutationMap);
-
-				clientForInsertion.batch_mutate(record, writeConsistencyLevel);
+				
+				
+				this.clientForModifications.batch_mutate(record, writeConsistencyLevel);
 
 				mutations.clear();
 				mutationMap.clear();
 				record.clear();
-
-				String ipForConsistencyTest = nodesContainingDataForKey.get(1);
-				Client clientForConsistencyTest = this.ipToClient
-						.get(ipForConsistencyTest);
+				
 				ConsistencyDelayResult consistencyResult= this.getDelayForConsistencyInsertOperation(key,
-						expectedValues, clientForConsistencyTest);
+						expectedValues, this.clientForConsistencyChecks);
 				this.resultWriter.write(typeOperation, consistencyResult);
 
 				return Ok;
@@ -366,21 +356,16 @@ public class CassandraClient10 extends DB
    */
   public int delete(String table, String key)
   {
-	List<String> nodesContainingDataForKey = this.nodeResolver.getIpsContainingDate(this.keyspace, this.column_family, key);
-	String ipForDeletion= nodesContainingDataForKey.get(0);
-	Client clientForDeletion = this.ipToClient.get(ipForDeletion);
-    for (int i = 0; i < OperationRetries; i++)
+	for (int i = 0; i < OperationRetries; i++)
     {
       try
       {
-        clientForDeletion.remove(ByteBuffer.wrap(key.getBytes("UTF-8")),
+        this.clientForModifications.remove(ByteBuffer.wrap(key.getBytes("UTF-8")),
                       new ColumnPath(column_family),
                       System.currentTimeMillis(),
                       deleteConsistencyLevel);
         
-        String ipForConsistencyTest = nodesContainingDataForKey.get(1);
-        Client clientForConsistencyTest = this.ipToClient.get(ipForConsistencyTest);
-        ConsistencyDelayResult consistencyResult = this.getDelayConsistencyDeleteOperation(key, clientForConsistencyTest);
+        ConsistencyDelayResult consistencyResult = this.getDelayConsistencyDeleteOperation(key, this.clientForConsistencyChecks);
         this.resultWriter.write(Operation.DELETE, consistencyResult);
         return Ok;
       } catch (Exception e)
