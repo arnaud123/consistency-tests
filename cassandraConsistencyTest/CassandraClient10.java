@@ -32,6 +32,8 @@ import org.apache.cassandra.thrift.ColumnOrSuperColumn;
 import org.apache.cassandra.thrift.ColumnParent;
 import org.apache.cassandra.thrift.ColumnPath;
 import org.apache.cassandra.thrift.ConsistencyLevel;
+import org.apache.cassandra.thrift.KeyRange;
+import org.apache.cassandra.thrift.KeySlice;
 import org.apache.cassandra.thrift.Mutation;
 import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.SliceRange;
@@ -46,9 +48,7 @@ import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.DBException;
 
-import consistencyTests.resultFile.TestResultFileWriter;
 import consistencyTests.resultFile.TestResultFileWriter.Operation;
-import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 //XXXX if we do replication, fix the consistency levels
@@ -79,17 +79,19 @@ public class CassandraClient10 extends DB
   public static final String COLUMN_FAMILY_PROPERTY_DEFAULT = "data";
  
   public static final String READ_CONSISTENCY_LEVEL_PROPERTY = "cassandra.readconsistencylevel";
-  public static final String READ_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "ONE";
+  public static final String READ_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "QUORUM";
 
   public static final String WRITE_CONSISTENCY_LEVEL_PROPERTY = "cassandra.writeconsistencylevel";
-  public static final String WRITE_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "ONE";
+  public static final String WRITE_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "QUORUM";
 
   public static final String SCAN_CONSISTENCY_LEVEL_PROPERTY = "cassandra.scanconsistencylevel";
-  public static final String SCAN_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "ONE";
+  public static final String SCAN_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "QUORUM";
 
   public static final String DELETE_CONSISTENCY_LEVEL_PROPERTY = "cassandra.deleteconsistencylevel";
-  public static final String DELETE_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "ONE";
+  public static final String DELETE_CONSISTENCY_LEVEL_PROPERTY_DEFAULT = "QUORUM";
 
+  public static final String WRITE_NODE_PROPERTY = "writenode";
+  
   Exception errorexception = null;
 
   List<Mutation> mutations = new ArrayList<Mutation>();
@@ -98,12 +100,11 @@ public class CassandraClient10 extends DB
 
   ColumnParent parent;
  
-  ConsistencyLevel readConsistencyLevel = ConsistencyLevel.ONE;
-  ConsistencyLevel writeConsistencyLevel = ConsistencyLevel.ONE;
-  ConsistencyLevel scanConsistencyLevel = ConsistencyLevel.ONE;
-  ConsistencyLevel deleteConsistencyLevel = ConsistencyLevel.ONE;
+  ConsistencyLevel readConsistencyLevel = ConsistencyLevel.QUORUM;
+  ConsistencyLevel writeConsistencyLevel = ConsistencyLevel.QUORUM;
+  ConsistencyLevel scanConsistencyLevel = ConsistencyLevel.QUORUM;
+  ConsistencyLevel deleteConsistencyLevel = ConsistencyLevel.QUORUM;
 
-  private TestResultFileWriter resultWriter;
   private Client clientForModifications;
   private Client clientForConsistencyChecks;
   private List<TTransport> trs;
@@ -137,14 +138,18 @@ public class CassandraClient10 extends DB
     
     String[] allhosts = hosts.split(",");
     
-    if(allhosts.length <2)
-    	throw new DBException("Al least two hosts required for \"hosts\" property");
+    String writeNode = getProperties().getProperty(WRITE_NODE_PROPERTY);
+    
+    if(allhosts.length <1)
+    	throw new DBException("Al least one hosts required for \"hosts\" property");
     this.trs = new ArrayList<TTransport>();
     this.clientForModifications = this.createClient(allhosts[0]);
-    this.clientForConsistencyChecks = this.createClient(allhosts[1]);
     
-    if(this.resultWriter == null)
-    	this.resultWriter = this.getTestResultFileWriter();
+    if(writeNode != null){
+    	this.clientForConsistencyChecks = this.createClient(writeNode);
+    } else{
+    	this.clientForConsistencyChecks = null;
+    }
   }
 
 	private Client createClient(String ip) throws DBException {
@@ -180,14 +185,7 @@ public class CassandraClient10 extends DB
 		this.trs.add(tr);
 		return client;
 	}
-  
-	private TestResultFileWriter getTestResultFileWriter() throws DBException{
-		String pathToResultFile = getProperties().getProperty("resultfile");
-		if(pathToResultFile == null)
-			throw new DBException("required property \"resultfile\" missing for CassandraClient");
-		return new TestResultFileWriter(pathToResultFile);
-	}
-  
+	
   /**
    * Cleanup any state for this DB. Called once per DB instance; there is one DB
    * instance per client thread.
@@ -195,8 +193,6 @@ public class CassandraClient10 extends DB
   public void cleanup() throws DBException
   {
     this.closeAllTrs();
-    this.resultWriter.close();
-    this.resultWriter = null;
   }
 
   private void closeAllTrs(){
@@ -220,7 +216,60 @@ public class CassandraClient10 extends DB
    * @return Zero on success, a non-zero error code on error
    */
   public int read(String table, String key, Set<String> fields, HashMap<String, ByteIterator> result){
-	  throw new UnsupportedOperationException();
+		for (int i = 0; i < OperationRetries; i++) {
+
+			try {
+				SlicePredicate predicate;
+				if (fields == null) {
+					predicate = new SlicePredicate()
+							.setSlice_range(new SliceRange(emptyByteBuffer,
+									emptyByteBuffer, false, 1000000));
+
+				} else {
+					ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(
+							fields.size());
+					for (String s : fields) {
+						fieldlist.add(ByteBuffer.wrap(s.getBytes("UTF-8")));
+					}
+
+					predicate = new SlicePredicate().setColumn_names(fieldlist);
+				}
+
+				Client client = this.clientForConsistencyChecks != null ? this.clientForConsistencyChecks : this.clientForModifications;
+				List<ColumnOrSuperColumn> results = client.get_slice(
+						ByteBuffer.wrap(key.getBytes("UTF-8")), parent,
+						predicate, readConsistencyLevel);
+
+				Column column;
+				String name;
+				ByteIterator value;
+				for (ColumnOrSuperColumn oneresult : results) {
+
+					column = oneresult.column;
+					name = new String(column.name.array(),
+							column.name.position() + column.name.arrayOffset(),
+							column.name.remaining());
+					value = new ByteArrayByteIterator(column.value.array(),
+							column.value.position()
+									+ column.value.arrayOffset(),
+							column.value.remaining());
+
+					result.put(name, value);
+				}
+				return Ok;
+			} catch (Exception e) {
+				errorexception = e;
+			}
+
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+
+			}
+		}
+		errorexception.printStackTrace();
+		errorexception.printStackTrace(System.out);
+		return Error;
   }
 
   /**
@@ -242,7 +291,65 @@ public class CassandraClient10 extends DB
    */
   public int scan(String table, String startkey, int recordcount, Set<String> fields,
       Vector<HashMap<String, ByteIterator>> result){
-    throw new UnsupportedOperationException();
+	    for (int i = 0; i < OperationRetries; i++)
+	    {
+
+	      try
+	      {
+	        SlicePredicate predicate;
+	        if (fields == null)
+	        {
+	          predicate = new SlicePredicate().setSlice_range(new SliceRange(emptyByteBuffer, emptyByteBuffer, false, 1000000));
+
+	        } else {
+	          ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(fields.size());
+	          for (String s : fields)
+	          {
+	              fieldlist.add(ByteBuffer.wrap(s.getBytes("UTF-8")));
+	          }
+
+	          predicate = new SlicePredicate().setColumn_names(fieldlist);
+	        }
+
+	        KeyRange kr = new KeyRange().setStart_key(startkey.getBytes("UTF-8")).setEnd_key(new byte[] {}).setCount(recordcount);
+
+	        Client client = this.clientForConsistencyChecks != null ? this.clientForConsistencyChecks : this.clientForModifications;
+	        List<KeySlice> results = client.get_range_slices(parent, predicate, kr, scanConsistencyLevel);
+
+	        HashMap<String, ByteIterator> tuple;
+	        for (KeySlice oneresult : results)
+	        {
+	          tuple = new HashMap<String, ByteIterator>();
+
+	          Column column;
+	          String name;
+	          ByteIterator value;
+	          for (ColumnOrSuperColumn onecol : oneresult.columns)
+	          {
+	              column = onecol.column;
+	              name = new String(column.name.array(), column.name.position()+column.name.arrayOffset(), column.name.remaining());
+	              value = new ByteArrayByteIterator(column.value.array(), column.value.position()+column.value.arrayOffset(), column.value.remaining());
+
+	              tuple.put(name, value);
+	          }
+	          result.add(tuple);
+	        }
+
+	        return Ok;
+	      } catch (Exception e)
+	      {
+	        errorexception = e;
+	      }
+	      try
+	      {
+	        Thread.sleep(500);
+	      } catch (InterruptedException e)
+	      {
+	      }
+	    }
+	    errorexception.printStackTrace();
+	    errorexception.printStackTrace(System.out);
+	    return Error;
   }
 
   /**
@@ -313,11 +420,6 @@ public class CassandraClient10 extends DB
 				mutations.clear();
 				mutationMap.clear();
 				record.clear();
-				
-				ConsistencyDelayResult consistencyResult= this.getDelayForConsistencyInsertOperation(key,
-						expectedValues, this.clientForConsistencyChecks);
-				this.resultWriter.write(typeOperation, consistencyResult);
-
 				return Ok;
 			} catch (Exception e) {
 				errorexception = e;
@@ -330,22 +432,6 @@ public class CassandraClient10 extends DB
 		errorexception.printStackTrace();
 		errorexception.printStackTrace(System.out);
 		return Error;
-  }
-  
-  private ConsistencyDelayResult getDelayForConsistencyInsertOperation(String key, StringToStringMap expectedValues, Client client){
-	  long startNanos = System.nanoTime();
-	  int attempts = 0;
-	  boolean consistencyReached = false;
-	  while(!consistencyReached){
-		  StringToStringMap realValues = this.getValueForKey(key, client);
-		  consistencyReached = StringToStringMap.doesValuesMatch(expectedValues, realValues);
-		  attempts++;
-		  // Value already overwritten by other client thread
-		  if (System.nanoTime() - startNanos > 2000000000L)
-			  return new ConsistencyDelayResult(2000000000L, attempts);
-	  }
-	  long delay = System.nanoTime() - startNanos;
-	  return new ConsistencyDelayResult(delay, attempts);
   }
   
   /**
@@ -367,9 +453,6 @@ public class CassandraClient10 extends DB
                       new ColumnPath(column_family),
                       System.currentTimeMillis(),
                       deleteConsistencyLevel);
-        
-        ConsistencyDelayResult consistencyResult = this.getDelayConsistencyDeleteOperation(key, this.clientForConsistencyChecks);
-        this.resultWriter.write(Operation.DELETE, consistencyResult);
         return Ok;
       } catch (Exception e)
       {
@@ -385,22 +468,6 @@ public class CassandraClient10 extends DB
     errorexception.printStackTrace();
     errorexception.printStackTrace(System.out);
     return Error;
-  }
-  
-  private ConsistencyDelayResult getDelayConsistencyDeleteOperation(String key, Client client){
-	  long startNanos = System.nanoTime();
-	  int attempts = 0;
-	  boolean itemHasBeenRemoved = false;
-	  while(!itemHasBeenRemoved){
-		  StringToStringMap result = this.getValueForKey(key, client);
-		  itemHasBeenRemoved = result.isEmpty();
-		  attempts++;
-		  // Value already overwritten by other client thread
-		  if (System.nanoTime() - startNanos > 2000000000L)
-			  return new ConsistencyDelayResult(2000000000L, attempts);
-	  }
-	  long delay = System.nanoTime() - startNanos;
-	  return new ConsistencyDelayResult(delay, attempts);
   }
   
   public StringToStringMap getValueForKey(String key, Client client)
@@ -440,19 +507,4 @@ public class CassandraClient10 extends DB
     }
     throw new RuntimeException(errorexception.getMessage());
   }
- 
-//	public static void main(String[] args) throws UnsupportedEncodingException, InvalidRequestException, UnavailableException, TimedOutException, TException {
-//		TFramedTransport tr = new TFramedTransport(new TSocket("127.0.0.1", 2222));
-//		TProtocol proto = new TBinaryProtocol(tr);
-//	    Client client = new Cassandra.Client(proto);
-//		try {
-//			tr.open();
-//		} catch (TTransportException e) {
-//			e.printStackTrace();
-//		}
-//		client.set_keyspace("usertable");
-//		SlicePredicate predicate = new SlicePredicate().setSlice_range(new SliceRange(emptyByteBuffer, emptyByteBuffer, false, 1000000));
-//		List<ColumnOrSuperColumn> results = client.get_slice(ByteBuffer.wrap("xyz".getBytes("UTF-8")), new ColumnParent("data"), predicate, ConsistencyLevel.ONE);
-//		System.out.println("size: " + results.size());
-//	}
 }
