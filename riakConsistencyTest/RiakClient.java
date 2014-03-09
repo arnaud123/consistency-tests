@@ -1,6 +1,8 @@
 package consistencyTests.riakConsistencyTest;
 
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.Vector;
 
@@ -13,15 +15,15 @@ import com.basho.riak.client.cap.Quora;
 import com.basho.riak.client.operations.DeleteObject;
 import com.basho.riak.client.operations.FetchObject;
 import com.basho.riak.client.operations.StoreObject;
+import com.basho.riak.client.query.BucketMapReduce;
+import com.basho.riak.client.query.MapReduceResult;
+import com.basho.riak.client.query.functions.JSSourceFunction;
 import com.basho.riak.client.raw.http.HTTPClientConfig;
 import com.basho.riak.client.raw.http.HTTPClusterConfig;
 import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.DBException;
 
-import consistencyTests.resultFile.TestResultFileWriter;
-import consistencyTests.resultFile.TestResultFileWriter.Operation;
-import consistencyTests.util.ConsistencyDelayResult;
 import consistencyTests.util.StringToStringMap;
 
 /*
@@ -49,16 +51,15 @@ public class RiakClient extends DB {
 	private static final Quora DEFAULT_READ_QUORUM = Quora.ONE;
 	private static final Quora DEFAULT_WRITE_QUORUM = Quora.ONE;
 	private static final Quora DEFAULT_DELETE_QUORA = Quora.ONE;
+	public static final String WRITE_NODE_PROPERTY = "writenode";
 	
 	private final int maxConnections = 50;
 	private IRiakClient clientForModifications;
 	private IRiakClient clientForConsistencyChecks;
-	private TestResultFileWriter resultFileWriter;
 	
 	public RiakClient(){
 		this.clientForModifications = null;
 		this.clientForConsistencyChecks = null;
-		this.resultFileWriter = null;
 	}
 	
 	private String[] getIpAddressesOfNodes() throws DBException {
@@ -67,16 +68,8 @@ public class RiakClient extends DB {
 			throw new DBException("Required property \"hosts\" missing for RiakClient");
 		return hosts.split(",");
 	}
-
-	private TestResultFileWriter getTestResultFileWriter() throws DBException{
-		String pathToResultFile = getProperties().getProperty("resultfile");
-		if(pathToResultFile == null)
-			throw new DBException("required property \"resultfile\" missing for riakClient");
-		return new TestResultFileWriter(pathToResultFile);
-	}
 	
-	private HTTPClusterConfig getClusterConfiguration() throws DBException {
-		String[] hosts = this.getIpAddressesOfNodes();
+	private HTTPClusterConfig getClusterConfiguration(String[] hosts) throws DBException {
 		HTTPClusterConfig clusterConfig = new HTTPClusterConfig(
 				this.maxConnections);
 		HTTPClientConfig httpClientConfig = HTTPClientConfig.defaults();
@@ -84,8 +77,8 @@ public class RiakClient extends DB {
 		return clusterConfig;
 	}
 	
-	private IRiakClient createRiakClient() throws DBException{
-		HTTPClusterConfig clusterConfig = getClusterConfiguration();
+	private IRiakClient createRiakClient(String[] hosts) throws DBException{
+		HTTPClusterConfig clusterConfig = getClusterConfiguration(hosts);
 		try {
 			return RiakFactory.newClient(clusterConfig);
 		} catch (RiakException e) {
@@ -95,15 +88,18 @@ public class RiakClient extends DB {
 	
 	@Override
 	public void init() throws DBException {
-		this.clientForModifications = this.createRiakClient();
-		this.clientForConsistencyChecks = this.createRiakClient();
-		this.resultFileWriter = this.getTestResultFileWriter();
+		String[] allHosts = this.getIpAddressesOfNodes();
+		this.clientForConsistencyChecks = this.createRiakClient(allHosts);
+		String writeNode = getProperties().getProperty(WRITE_NODE_PROPERTY);
+		if(writeNode == null)
+			this.clientForModifications = this.clientForConsistencyChecks;
+		else
+			this.clientForModifications = this.createRiakClient(new String[]{writeNode});
 	}
 	
 	@Override
 	public void cleanup() throws DBException {
 		this.shutdownAllClients();
-		this.resultFileWriter.close();
 	}
 	
 	private void shutdownAllClients(){
@@ -138,16 +134,104 @@ public class RiakClient extends DB {
 		return OK;
 	}
 	
+	private void copyRequestedFieldsToResultMap(Set<String> fields,
+			StringToStringMap inputMap,
+			HashMap<String, ByteIterator> result) {
+		for (String field : fields) {
+			ByteIterator value = inputMap.getAsByteIt(field);
+			result.put(field, value);
+		}
+	}
+
+	private void copyAllFieldsToResultMap(StringToStringMap inputMap, 
+								Map<String, ByteIterator> result){
+		for(String key: inputMap.keySet()){
+			ByteIterator value = inputMap.getAsByteIt(key);
+			result.put(key, value);
+		}
+	}
+	
+	private StringToStringMap executeReadQuery(String bucketName, String key) {
+		try {
+			Bucket bucket = this.clientForConsistencyChecks.fetchBucket(bucketName).execute();
+			FetchObject<StringToStringMap> fetchObj = bucket.fetch(key, StringToStringMap.class);
+			StringToStringMap result = fetchObj.r(DEFAULT_READ_QUORUM).execute();
+			if(result == null)
+				throw new Exception("key not found" + key);
+			else
+				return result;
+		} catch (Exception exc) {
+			return null;
+		}
+	}
+	
 	@Override
 	public int read(String bucketName, String key, Set<String> fields,
 			HashMap<String, ByteIterator> result) {
-		throw new UnsupportedOperationException();
+		StringToStringMap queryResult = executeReadQuery(bucketName, key);
+		if (queryResult == null) {
+			return ERROR;
+		}
+		if (fields != null) {
+			this.copyRequestedFieldsToResultMap(fields, queryResult, result);
+		} else {
+			this.copyAllFieldsToResultMap(queryResult, result);
+		}
+		return OK;
 	}
 	
 	@Override
 	public int scan(String table, String startkey, int recordcount,
 			Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
-		throw new UnsupportedOperationException();
+		BucketMapReduce m = this.clientForConsistencyChecks.mapReduce(table);
+		m.addMapPhase(new JSSourceFunction(getMapPhaseFunction(startkey)), false);
+		m.addReducePhase(new JSSourceFunction(getReducePhaseFunction(recordcount)), true);
+		MapReduceResult mapReduceResult;
+		try {
+			mapReduceResult = m.execute();
+		} catch (RiakException e) {
+			return ERROR;
+		}
+		Collection<StringToStringMap> mapredResult = mapReduceResult.getResult(StringToStringMap.class);
+		this.putScanResultInResultMap(mapredResult, fields, result);
+		return OK;
+	}
+
+	private String getMapPhaseFunction(String startKey){
+		return "function(riakObject){ " +
+				"var numPartCurrentKey = parseInt(riakObject.key.substring(4)); " +
+				"var numPartStartKey = parseInt(\"" + startKey + "\".substring(4)); " +
+				"var value = riakObject.values[0].data; " +
+				"if(numPartCurrentKey >= numPartStartKey){ " +
+                	"parsedValue = JSON.parse(value);" +
+                	"parsedValue.key = numPartCurrentKey; " +
+                	"return [JSON.stringify(parsedValue)]; }" + 
+                "else {" + 
+                	"return []; }" +
+               "} ";
+	}
+	
+	private String getReducePhaseFunction(int amountOfValuesToRetrieve){
+		return  "function(keyValuePairs){ " +
+				 "var amount = " + amountOfValuesToRetrieve + "; " +
+				 "var sortedPairs = keyValuePairs.sort(function(a, b) { parsedA = JSON.parse(a); parsedB = JSON.parse(b); " +
+				 														"return (parsedA.key < parsedB.key ? -1 : ( parsedA.key > parsedB.key ? 1 : 0)); }); " +
+				 "return sortedPairs.slice(0,amount); " +
+                 "} ";
+	}
+	
+	private void putScanResultInResultMap(
+			Collection<StringToStringMap> mapredResult, Set<String> fields,
+			Vector<HashMap<String, ByteIterator>> result) {
+		for (StringToStringMap currentMap : mapredResult) {
+			HashMap<String, ByteIterator> mapToAdd = new HashMap<String, ByteIterator>();
+			if (fields == null)
+				this.copyAllFieldsToResultMap(currentMap, mapToAdd);
+			else
+				this.copyRequestedFieldsToResultMap(fields, currentMap,
+						mapToAdd);
+			result.add(mapToAdd);
+		}
 	}
 	
 	@Override
@@ -160,41 +244,14 @@ public class RiakClient extends DB {
 			ByteIterator newValue = values.get(fieldToUpdate);
 			queryResult.put(fieldToUpdate, newValue);
 		}
-		int exitCode = this.executeWriteQuery(this.clientForModifications, bucketName, key, queryResult);
-		if(exitCode != OK)
-			return exitCode;
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(bucketName, key, queryResult);
-		this.resultFileWriter.write(Operation.UPDATE, consistencyResult);
-		return OK;
+		return this.executeWriteQuery(this.clientForModifications, bucketName, key, queryResult);
 	}
 
 	@Override
 	public int insert(String bucketName, String key,
 			HashMap<String, ByteIterator> values) {
 		StringToStringMap dataToInsert = new StringToStringMap(values);
-		int exitCode = this.executeWriteQuery(this.clientForModifications, bucketName, key, dataToInsert);
-		if(exitCode != OK)
-			return exitCode;
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyNewValue(bucketName, key, dataToInsert);
-		this.resultFileWriter.write(Operation.INSERT, consistencyResult);
-		return OK;
-	}
-
-	private ConsistencyDelayResult checkConsistencyNewValue(String bucketName, String key, StringToStringMap expectedValues){
-		long startNanos = System.nanoTime();
-		int attempts = 0;
-		boolean match = false;
-		while(!match){
-			StringToStringMap resultMap = this.executeReadQuery(this.clientForConsistencyChecks, bucketName, key);
-			if(resultMap != null)
-				match = StringToStringMap.doesValuesMatch(expectedValues, resultMap);
-			attempts++;
-			// Value already overwritten by other client thread
-			if(System.nanoTime() - startNanos > 2000000000L)
-				return new ConsistencyDelayResult(2000000000L, attempts);
-		}
-		long delay = System.nanoTime() - startNanos;
-		return new ConsistencyDelayResult(delay, attempts);
+		return this.executeWriteQuery(this.clientForModifications, bucketName, key, dataToInsert);
 	}
 	
 	@Override
@@ -208,24 +265,7 @@ public class RiakClient extends DB {
 		} catch (RiakException e) {
 			return ERROR;
 		}
-		ConsistencyDelayResult consistencyResult = this.checkConsistencyDeletion(bucketName, key);
-		this.resultFileWriter.write(Operation.DELETE, consistencyResult);
 		return OK;
-	}
-	
-	private ConsistencyDelayResult checkConsistencyDeletion(String bucketName, String key){
-		long startNanos= System.nanoTime();
-		int attempts = 0;
-		StringToStringMap resultMap = null;
-		while(resultMap != null){
-			resultMap = this.executeReadQuery(this.clientForConsistencyChecks, bucketName, key);
-			attempts++;
-			// Value already overwritten by other client thread
-			if(System.nanoTime() - startNanos > 2000000000L)
-				return new ConsistencyDelayResult(2000000000L, attempts);
-		}
-		long delay = System.nanoTime() - startNanos;
-		return new ConsistencyDelayResult(delay, attempts);
 	}
 
 }

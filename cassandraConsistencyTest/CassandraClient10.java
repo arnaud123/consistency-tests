@@ -148,7 +148,7 @@ public class CassandraClient10 extends DB
     if(writeNode != null){
     	this.clientForConsistencyChecks = this.createClient(writeNode);
     } else{
-    	this.clientForConsistencyChecks = null;
+    	this.clientForConsistencyChecks = this.clientForModifications;
     }
   }
 
@@ -235,8 +235,7 @@ public class CassandraClient10 extends DB
 					predicate = new SlicePredicate().setColumn_names(fieldlist);
 				}
 
-				Client client = this.clientForConsistencyChecks != null ? this.clientForConsistencyChecks : this.clientForModifications;
-				List<ColumnOrSuperColumn> results = client.get_slice(
+				List<ColumnOrSuperColumn> results = this.clientForConsistencyChecks.get_slice(
 						ByteBuffer.wrap(key.getBytes("UTF-8")), parent,
 						predicate, readConsistencyLevel);
 
@@ -313,8 +312,7 @@ public class CassandraClient10 extends DB
 
 	        KeyRange kr = new KeyRange().setStart_key(startkey.getBytes("UTF-8")).setEnd_key(new byte[] {}).setCount(recordcount);
 
-	        Client client = this.clientForConsistencyChecks != null ? this.clientForConsistencyChecks : this.clientForModifications;
-	        List<KeySlice> results = client.get_range_slices(parent, predicate, kr, scanConsistencyLevel);
+	        List<KeySlice> results = this.clientForConsistencyChecks.get_range_slices(parent, predicate, kr, scanConsistencyLevel);
 
 	        HashMap<String, ByteIterator> tuple;
 	        for (KeySlice oneresult : results)
