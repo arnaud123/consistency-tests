@@ -2,6 +2,11 @@ package consistencyTests.util;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
 import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.StringByteIterator;
@@ -27,49 +32,72 @@ import com.yahoo.ycsb.StringByteIterator;
 public class StringToStringMap extends HashMap<String, String> {
 
 	private static final long serialVersionUID = 1L;
-	
-	public StringToStringMap(){
+
+	public StringToStringMap() {
 		super();
 	}
-	
+
 	/*
-	 * After calling this constructor, the ByteIterator values 
-	 * of otherMap won't be useful anymore!!!
+	 * After calling this constructor, the ByteIterator values of otherMap won't
+	 * be useful anymore!!!
 	 */
-	public StringToStringMap(Map<String, ByteIterator> otherMap){
+	public StringToStringMap(Map<String, ByteIterator> otherMap) {
 		super();
-		for(String key: otherMap.keySet()){
+		for (String key : otherMap.keySet()) {
 			String value = otherMap.get(key).toString();
 			super.put(key, value);
 		}
 	}
-	
-	public void put(String key, ByteIterator value){
+
+	/* 
+	 * Extracts only the string values from the json string. Assumes the json
+	 * string only contains simple objects (no arrays, etc).
+	 * 
+	 * Parsed mapreduce result
+	 */
+
+	public StringToStringMap(String contentOfMapAsJson) throws ParseException {
+		super();
+		JSONParser parser = new JSONParser();
+		JSONObject jsonObj = (JSONObject) parser.parse(contentOfMapAsJson);
+		@SuppressWarnings("unchecked")
+		Set<String> keys = jsonObj.keySet();
+		for (String key : keys) {
+			Object value = jsonObj.get(key);
+			// Remove key from json string
+			if (value instanceof String) {
+				super.put(key, (String) value);
+			}
+		}
+	}
+
+	public void put(String key, ByteIterator value) {
 		String valueAsString = value.toString();
 		super.put(key, valueAsString);
 	}
-	
-	public ByteIterator getAsByteIt(String key){
+
+	public ByteIterator getAsByteIt(String key) {
 		String value = super.get(key);
 		return new StringByteIterator(value);
 	}
-	
+
 	/*
 	 * This method checks whether all values belonging to the values of expected
-	 * match with the corresponding values in real. 
+	 * match with the corresponding values in real.
 	 */
-	public static boolean doesValuesMatch(StringToStringMap expected, StringToStringMap real){
-		for(String key: expected.keySet()){
+	public static boolean doesValuesMatch(StringToStringMap expected,
+			StringToStringMap real) {
+		for (String key : expected.keySet()) {
 			String expectedValue = expected.get(key);
 			String realValue = real.get(key);
-			if(realValue == null || !expectedValue.equals(realValue))
+			if (realValue == null || !expectedValue.equals(realValue))
 				return false;
 		}
 		return true;
 	}
-	
-	public static void print(StringToStringMap map){
-		for(String key : map.keySet()){
+
+	public static void print(StringToStringMap map) {
+		for (String key : map.keySet()) {
 			String value = map.get(key);
 			System.err.println("Key=" + key + "; Values=" + value);
 		}
