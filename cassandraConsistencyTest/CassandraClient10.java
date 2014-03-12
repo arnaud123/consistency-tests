@@ -48,7 +48,6 @@ import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.DBException;
 
-import consistencyTests.resultFile.TestResultFileWriter.Operation;
 import consistencyTests.util.StringToStringMap;
 
 //XXXX if we do replication, fix the consistency levels
@@ -365,7 +364,7 @@ public class CassandraClient10 extends DB
    */
   public int update(String table, String key, HashMap<String, ByteIterator> values)
   {
-    return this.executeInsertOrUpdate(Operation.UPDATE, table, key, values);
+    return this.executeInsertOrUpdate(table, key, values);
   }
 
   /**
@@ -383,10 +382,10 @@ public class CassandraClient10 extends DB
    */
   public int insert(String table, String key, HashMap<String, ByteIterator> values)
   {
-	return this.executeInsertOrUpdate(Operation.INSERT, table, key, values);
+	return this.executeInsertOrUpdate(table, key, values);
   }
 
-  private int executeInsertOrUpdate(Operation typeOperation, String table, String key, HashMap<String, ByteIterator> values){
+  private int executeInsertOrUpdate(String table, String key, HashMap<String, ByteIterator> values){
 		StringToStringMap expectedValues = new StringToStringMap(values);
 		for (int i = 0; i < OperationRetries; i++) {
 			try {
