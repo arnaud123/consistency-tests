@@ -189,7 +189,7 @@ public class RiakClient extends DB {
 		MapReduceResult mapReduceResult;
 		try {
 			mapReduceResult = m.execute();
-		} catch (RiakException e) {
+		} catch (Exception e) {
 			return ERROR;
 		}
 		Collection<StringToStringMap> mapredResult = mapReduceResult.getResult(StringToStringMap.class);
@@ -262,7 +262,7 @@ public class RiakClient extends DB {
 			delObj.rw(DEFAULT_DELETE_QUORA).execute();
 		} catch (RiakRetryFailedException e) {
 			return ERROR;
-		} catch (RiakException e) {
+		} catch (Exception e) {
 			return ERROR;
 		}
 		return OK;
